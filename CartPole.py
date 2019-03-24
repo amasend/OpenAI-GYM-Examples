@@ -11,7 +11,7 @@ class BasicAgent:
     The environment is taken from OpenAI GYM "CartPole-v0"
     """
     def __init__(self, env, epochs=50, steps=1000, policy='basic_policy', n_iterations=250,
-                 n_max_steps=1000, n_games_per_update=10, save_iterations=10, gamma=0.98):
+                 n_max_steps=1000, n_games_per_update=10, save_iterations=10, gamma=0.98, model_path=None):
         self.rewards = list()
         self.steps_number = list()
         self.step_time = list()
@@ -32,6 +32,7 @@ class BasicAgent:
         self.n_games_per_update = n_games_per_update  # train the policy every x episodes
         self.save_iterations = save_iterations  # save the model every x training iterations
         self.gamma = gamma  # the discount factor
+        self.model_path = model_path
 
     @staticmethod
     def discount_rewards(rewards, gamma):
@@ -176,7 +177,7 @@ class BasicAgent:
         """Plays agent with trained neural network loaded from file."""
         with tf.Session(graph=tf.Graph()) as sess:
             # Loads saved neural network, creates graph and gets input and output tensors for evaluation
-            tf.saved_model.loader.load(sess, ['tag'], '.\\model')
+            tf.saved_model.loader.load(sess, ['tag'], self.model_path)
             graph = tf.get_default_graph()
             x = graph.get_tensor_by_name('Input_layer:0')
             model = graph.get_tensor_by_name('Output_layer/Multinomial:0')
@@ -306,6 +307,8 @@ if __name__ == '__main__':
                                                       'their parameters. Default 10.', default=10)
     parser.add_argument('--gamma', type=float, help='Discount factor for Policy Gradient (PG) neural network.'
                                                     'Default 0.98.', default=0.98)
+    parser.add_argument('--model_path', type=str, help='Path to the saved model.', default='.\\model_trained')
+
     args = parser.parse_args()
 
     environment = gym.make("CartPole-v0")
@@ -322,7 +325,8 @@ if __name__ == '__main__':
             agent.play_and_learn_neural_net()
         else:
             print('Neural Network agent tries to keep the stick upright as long as he can.')
-            agent = BasicAgent(env=environment, epochs=args.epochs, steps=args.steps, policy=args.policy)
+            agent = BasicAgent(env=environment, epochs=args.epochs, steps=args.steps, policy=args.policy,
+                               model_path=args.model_path)
             agent.play_neural_network()
             agent.print_stats()
 
