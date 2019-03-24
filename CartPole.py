@@ -3,13 +3,15 @@ import time
 import numpy as np
 import argparse
 import tensorflow as tf
+import shutil
 
 
 class BasicAgent:
     """This basic agent tries to keep the pole upright as long as this is possible.
     The environment is taken from OpenAI GYM "CartPole-v0"
     """
-    def __init__(self, env, epochs=50, steps=1000, policy='basic_policy'):
+    def __init__(self, env, epochs=50, steps=1000, policy='basic_policy', n_iterations=250,
+                 n_max_steps=1000, n_games_per_update=10, save_iterations=10, gamma=0.98):
         self.rewards = list()
         self.steps_number = list()
         self.step_time = list()
@@ -17,13 +19,19 @@ class BasicAgent:
         self.steps = steps
         self.policy = policy
         self.env = env
+
+        # Neural Network part
         self.action = None
         self.gradients = list()
         self.training_op = None
         self.init = None
-        self.saver = None
         self.gradient_placeholders = list()
         self.grads_and_vars_feed = list()
+        self.n_iterations = n_iterations  # number of training iterations
+        self.n_max_steps = n_max_steps  # max steps per episode
+        self.n_games_per_update = n_games_per_update  # train the policy every x episodes
+        self.save_iterations = save_iterations  # save the model every x training iterations
+        self.gamma = gamma  # the discount factor
 
     @staticmethod
     def discount_rewards(rewards, gamma):
@@ -70,7 +78,7 @@ class BasicAgent:
 
         learning_rate = 0.01  # Optimizer learning rate
 
-        self.X = tf.placeholder(tf.float32, shape=[None, self.n_inputs])  # Creates placeholder for the first layer
+        self.X = tf.placeholder(tf.float32, shape=[None, self.n_inputs], name='Input_layer')  # Creates placeholder for the first layer
         hidden = tf.layers.dense(self.X, n_hidden, activation=tf.nn.elu,  # Creates first hidden layer with ELU activation
                                  kernel_initializer=initializer)  # function and initiate neuron weights
         logits = tf.layers.dense(hidden, n_outputs,  # Creates output layer with only one neuron (binary classification)
@@ -81,7 +89,7 @@ class BasicAgent:
         # place here, concat(going_left_prob, going_right_prob)
         p_left_and_right = tf.concat(axis=1, values=[outputs, 1 - outputs])
         # Samples one integer 0 or 1 based on their probability, produces final action
-        self.action = tf.multinomial(tf.log(p_left_and_right), num_samples=1)
+        self.action = tf.multinomial(tf.log(p_left_and_right), num_samples=1, name='Output_layer')
 
         y = 1. - tf.to_float(self.action)  # Make target probability (if action is 0, target prob should be 1.)
         cross_entropy = tf.nn.sigmoid_cross_entropy_with_logits(
@@ -99,36 +107,30 @@ class BasicAgent:
 
         self.training_op = optimizer.apply_gradients(self.grads_and_vars_feed)  # Applies tuned gradients to network
         self.init = tf.global_variables_initializer()  # Initialize all variables (weights etc.)
-        self.saver = tf.train.Saver()  # Saves neural network state
 
-    def play_neural_net(self):
+    def play_and_learn_neural_net(self):
         """Plays CartPole with Neural Network as an agent.
         It tries to run number of epochs with 10 games each, where one game tries to do number of steps.
         After each 10 games, save the model state."""
-        n_iterations = 250  # number of training iterations
-        n_max_steps = 1000  # max steps per episode
-        n_games_per_update = 10  # train the policy every 10 episodes
-        save_iterations = 10  # save the model every 10 training iterations
-        gamma = 0.95  # the discount factor
 
         # Starts whole tensorflow session
         with tf.Session() as sess:
             self.init.run()  # Initialize all variables in NN
-            for iteration in range(n_iterations):
+            for iteration in range(self.n_iterations):
                 all_rewards = []  # all sequences of raw rewards for each episode
                 all_gradients = []  # gradients saved at each step of each episode
-                for game in range(n_games_per_update):
+                for game in range(self.n_games_per_update):
                     current_rewards = []  # all raw rewards from the current episode
                     current_gradients = []  # all gradients from the current episode
                     obs = self.env.reset()
-                    for step in range(n_max_steps):
+                    for step in range(self.n_max_steps):
                         self.env.render()  # Show environment
                         # Computes action and gradients per step
                         action_val, gradients_val = sess.run([self.action, self.gradients],
                                                              feed_dict={self.X: obs.reshape(1, self.n_inputs)})
                         obs, reward, done, info = self.env.step(action_val[0][0])
                         # Updates arrays with rewards and gradients per step
-                        current_rewards.append(reward)
+                        current_rewards.append(3 * reward + self.modified_rewards(obs))
                         current_gradients.append(gradients_val)
                         if done:
                             break
@@ -139,7 +141,7 @@ class BasicAgent:
                 # ready for a policy update with the following algorithm:
                 # - Each computed gradient should be multiply by particular reward got along with this gradient.
                 # - Then mean gradient value should be computed
-                all_rewards = self.discount_and_normalize_rewards(all_rewards, gamma)
+                all_rewards = self.discount_and_normalize_rewards(all_rewards, self.gamma)
                 feed_dict = {}
                 for var_index, grad_placeholder in enumerate(self.gradient_placeholders):
                     # multiply the gradients by the action scores, and compute the mean
@@ -150,8 +152,64 @@ class BasicAgent:
                         axis=0)
                     feed_dict[grad_placeholder] = mean_gradients
                 sess.run(self.training_op, feed_dict=feed_dict)  # Applies mean gradient to the network
-                if iteration % save_iterations == 0:  # Save model state after each 10th iteration
-                    self.saver.save(sess, ".\\my_policy_net_pg.ckpt")
+                print('Iteration: {} of {}'.format(iteration, self.n_iterations))
+                if iteration % self.save_iterations == 0:  # Save model state after each 10th iteration
+                    # Saving
+                    self.remove_dir('.\\model')  # Remove dir with saved model before saving
+                    builder = tf.saved_model.builder.SavedModelBuilder('.\\model')
+                    builder.add_meta_graph_and_variables(sess, ["tag"], signature_def_map={
+                        "model": tf.saved_model.signature_def_utils.predict_signature_def(
+                            inputs={"x": self.X},
+                            outputs={"finalnode": self.action})
+                    })
+                    builder.save()
+
+    @staticmethod
+    def remove_dir(dir_):
+        """Removes directory."""
+        try:
+            shutil.rmtree(dir_)
+        except Exception as e:
+            print(e)
+
+    def play_neural_network(self):
+        """Plays agent with trained neural network loaded from file."""
+        with tf.Session(graph=tf.Graph()) as sess:
+            # Loads saved neural network, creates graph and gets input and output tensors for evaluation
+            tf.saved_model.loader.load(sess, ['tag'], '.\\model')
+            graph = tf.get_default_graph()
+            x = graph.get_tensor_by_name('Input_layer:0')
+            model = graph.get_tensor_by_name('Output_layer/Multinomial:0')
+
+            # Run an example X times to get average score (X = number of epochs)
+            for epoch in range(self.epochs):
+                # Initiate an agent (reset an environment and reward on each epoch)
+                obs = self.env.reset()
+                episode_reward = 0
+                start_step_time = time.time()
+                # Try to keep pool upright Y times (Y = number of steps)
+                for step in range(self.steps):
+                    self.env.render()
+                    # Make a decision what to do next based on our neural network policy
+                    action_val = sess.run(model, feed_dict={x: obs.reshape(1, 4)})
+                    obs, reward, done, info = self.env.step(action_val[0][0])
+                    if done:
+                        self.rewards.append(episode_reward)
+                        self.steps_number.append(step)
+                        break
+                    else:
+                        episode_reward += reward
+                end_step_time = time.time()
+                self.step_time.append(end_step_time - start_step_time)
+
+    @staticmethod
+    def modified_rewards(obs):
+        """ position, velocity, angle, ang velocity"""
+        position = obs[0]
+        hor_vel = obs[1]
+        angle = obs[2]
+        ang_vel = obs[3]
+        return -(np.abs(position) - np.abs(hor_vel) + 3 * np.abs(ang_vel) + 4 * np.abs(angle))
 
     @staticmethod
     def basic_policy(obs):
@@ -229,19 +287,43 @@ if __name__ == '__main__':
                 If an angle is positive (pole tilted to the right) look at angular velocity.
     basic_policy - if an angle is negative (pole tilted to the left) move it to the left.
                 If an angle is positive (pole tilted to the right) move it to the right.
-    policy_gradient - based on neural network""", default='basic_policy',
+    policy_gradient - based on neural network""", default='policy_gradient',
                         choices=['ang_vel_policy', 'basic_policy', 'policy_gradient'])
-    parser.add_argument('--epochs', type=int, help='Number of epochs.', default=10)
-    parser.add_argument('--steps', type=int, help='Maximum number of steps per epoch.', default=1000)
+    parser.add_argument('--epochs', type=int, help='Number of epochs. Default 10.', default=10)
+    parser.add_argument('--steps', type=int, help='Maximum number of steps per epoch. Default 1000.', default=1000)
+    parser.add_argument('--learn', type=bool, help='Only for policy_gradient, if True, neural network will learn'
+                                                   'based on rewards, if False (default), neural network will'
+                                                   'tries to play. Default False.',
+                        default=True,
+                        choices=[True, False])
+    parser.add_argument('--iterations', type=int, help='Number of iterations which neural network will be trained,'
+                                                       'Default 250.', default=250)
+    parser.add_argument('--max_steps', type=int, help='Maximum number of steps per game during neural network learning,'
+                                                      'process. Default 1000.', default=1000)
+    parser.add_argument('--games', type=int, help='Number of games performed by neural network per one weights update.'
+                                                  'Default 10', default=10)
+    parser.add_argument('--save_iter', type=int, help='Number of iterations after which neural network saves all'
+                                                      'their parameters. Default 10.', default=10)
+    parser.add_argument('--gamma', type=float, help='Discount factor for Policy Gradient (PG) neural network.'
+                                                    'Default 0.98.', default=0.98)
     args = parser.parse_args()
 
     environment = gym.make("CartPole-v0")
-    agent = BasicAgent(environment, args.epochs, args.steps, args.policy)
     if args.policy != 'policy_gradient':
+        agent = BasicAgent(env=environment, epochs=args.epochs, steps=args.steps, policy=args.policy)
         agent.play()
         agent.print_stats()
     else:
-        agent.neural_net_model()
-        agent.play_neural_net()
+        if args.learn:
+            print('Neural network is learning...')
+            agent = BasicAgent(env=environment, n_iterations=args.iterations,n_max_steps=args.max_steps,
+                               n_games_per_update=args.games, save_iterations=args.save_iter, gamma=args.gamma)
+            agent.neural_net_model()
+            agent.play_and_learn_neural_net()
+        else:
+            print('Neural Network agent tries to keep the stick upright as long as he can.')
+            agent = BasicAgent(env=environment, epochs=args.epochs, steps=args.steps, policy=args.policy)
+            agent.play_neural_network()
+            agent.print_stats()
 
     environment.close()
