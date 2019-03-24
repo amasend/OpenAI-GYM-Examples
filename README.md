@@ -34,7 +34,7 @@ If an angle is positive (pole tilted to the right) look at angular velocity, if 
 
 ## Neural Network
 
-For ***policy gradients (PG)***
+For ***policy gradients (PG)***  
 ***Training during play.***
 ```bash
 python CartPole.py --policy policy_gradient --learn True --iterations number_of_iterations --max_steps number_of_max_steps --games number_of_games --save_iter saving_iteration_number --gamma reward_discount
