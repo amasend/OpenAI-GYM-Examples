@@ -15,7 +15,7 @@ For ***basic policy:***
 ```bash
 python CartPole.py --policy basic_policy --epochs epochs_number --steps steps_number
 ```  
-![Alt Text](https://github.com/amasend/OpenAI-GYM-Examples/blob/master/Cart%20Pole%20example/pictures/CartPole_basic.gif)
+<img src="https://github.com/amasend/OpenAI-GYM-Examples/blob/master/Cart%20Pole%20example/pictures/CartPole_basic.gif" width="200" height="200" />    
 Where:
 
  - **basic_policy** - if an angle is negative (pole tilted to the left) move it to the left.  If an angle is positive (pole tilted to the right) move it to the right.
@@ -53,7 +53,7 @@ Where:
 ```bash
 python CartPole.py --policy policy_gradient --learn False --epochs epochs_number --steps --model_path path_to_the_nn_modelsteps_number
 ```  
-![Alt Text](https://github.com/amasend/OpenAI-GYM-Examples/blob/master/Cart%20Pole%20example/pictures/CartPole_policy_gradient.gif)
+<img src="https://github.com/amasend/OpenAI-GYM-Examples/blob/master/Cart%20Pole%20example/pictures/CartPole_policy_gradient.gif" width="200" height="200" />  
 Where:
 
  - **policy_gradient** - based on neural network
