@@ -8,6 +8,7 @@ from matplotlib import pyplot as plt
 from collections import deque
 import os
 import pandas as pd
+import pickle as pckl
 
 
 _CONTRAST_ = np.array([210, 164, 74]).mean()
@@ -16,14 +17,14 @@ _LIFES_ = [True, True]
 
 class MsPacman:
     """Class for building MsPacman Deep Q-Network Reinforcement Learning agent."""
-    def __init__(self, n_outputs, replay_memory_size=500000, input_height=88, input_width=80, input_channels=1,
+    def __init__(self, n_outputs, replay_memory_size=5000, input_height=88, input_width=80, input_channels=1,
                  conv_n_maps=[32, 64, 64],
                  conv_kernel_sizes=[(8, 8), (4, 4), (3, 3)], conv_strides=[4, 2, 1],
                  conv_paddings=["SAME"] * 3, conv_activation=[tf.nn.relu] * 3, n_hidden_in=64 * 11 * 10,
                  n_hidden=512, hidden_activation=tf.nn.relu,
                  initializer=tf.contrib.layers.variance_scaling_initializer(),
                  eps_min=0.1, eps_max=1.0, eps_decay_steps=2000000, learning_rate=0.001, momentum=0.95,
-                 n_steps=4000000, training_start=100000, training_interval=16, save_steps=1000,
+                 n_steps=4000000, training_start=5000, training_interval=16, save_steps=500,
                  copy_steps=500, gamma = 0.99, skip_start=90, batch_size=64,
                  checkpoint_path="./my_dqn.ckpt"):
 
@@ -173,10 +174,15 @@ class MsPacman:
         every train period. All Online DQN variavbles are copied to target DQN every copy period.
         Each game cumulative reward is stored for further investigation."""
         with tf.Session() as sess:
-            # TODO: implement replay memory restoration!
             # Restore DQN variables if checkpoints are available (but it not restore replay memory!!!)
             if os.path.isfile(self.checkpoint_path + ".index"):
                 self.saver.restore(sess, self.checkpoint_path)
+                try:
+                    with open('replay_memory.pickle', 'rb') as f:
+                        self.replay_memory = pckl.load(f)
+                except:
+                    raise Exception('There is no any replay memory buffer in the path!')
+                self.iteration = self.training_start
             else:  # Initialize both online and target DQNs
                 self.init.run()
                 self.copy_online_to_target.run()
@@ -245,6 +251,8 @@ class MsPacman:
                     # And save regularly
                     if step % self.save_steps == 0:
                         self.saver.save(sess, self.checkpoint_path)
+                        with open('replay_memory.pickle', 'wb') as f:
+                            pckl.dump(self.replay_memory, f)
                         print('Model saved!')
 
                 else:  # Play previous action in the meantime when this is not an actual action frame
