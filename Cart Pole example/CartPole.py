@@ -4,6 +4,7 @@ import numpy as np
 import argparse
 import tensorflow as tf
 import shutil
+import pandas as pd
 
 
 class BasicAgent:
@@ -117,6 +118,7 @@ class BasicAgent:
         # Starts whole tensorflow session
         with tf.Session() as sess:
             self.init.run()  # Initialize all variables in NN
+            self.reward_storage = pd.DataFrame(columns=['mean', 'std'])
             for iteration in range(self.n_iterations):
                 all_rewards = []  # all sequences of raw rewards for each episode
                 all_gradients = []  # gradients saved at each step of each episode
@@ -138,6 +140,10 @@ class BasicAgent:
                     # Updates arrays with rewards and gradients per game
                     all_rewards.append(current_rewards)
                     all_gradients.append(current_gradients)
+                # Store mean learning curve (mean and std per few games for every iteration for further analysis
+                self.reward_storage = self.reward_storage.append({'mean': np.mean([np.sum(rew) for rew in all_rewards]),
+                                                                  'std': np.std([np.sum(rew) for rew in all_rewards])},
+                                                                 ignore_index=True)
                 # At this point we have run the policy for 10 episodes, and we are
                 # ready for a policy update with the following algorithm:
                 # - Each computed gradient should be multiply by particular reward got along with this gradient.
@@ -164,6 +170,8 @@ class BasicAgent:
                             outputs={"finalnode": self.action})
                     })
                     builder.save()
+                    # Store all rewards into csv file
+                    self.reward_storage.to_csv('policy_gradient_rewards.csv')
 
     @staticmethod
     def remove_dir(dir_):
@@ -290,7 +298,7 @@ if __name__ == '__main__':
                 If an angle is positive (pole tilted to the right) move it to the right.
     policy_gradient - based on neural network""", default='policy_gradient',
                         choices=['ang_vel_policy', 'basic_policy', 'policy_gradient'])
-    parser.add_argument('--epochs', type=int, help='Number of epochs. Default 10.', default=10)
+    parser.add_argument('--epochs', type=int, help='Number of epochs. Default 10.', default=100)
     parser.add_argument('--steps', type=int, help='Maximum number of steps per epoch. Default 1000.', default=1000)
     parser.add_argument('--learn', type=bool, help='Only for policy_gradient, if True, neural network will learn'
                                                    'based on rewards, if False (default), neural network will'
@@ -298,15 +306,15 @@ if __name__ == '__main__':
                         default=True,
                         choices=[True, False])
     parser.add_argument('--iterations', type=int, help='Number of iterations which neural network will be trained,'
-                                                       'Default 250.', default=250)
+                                                       'Default 250.', default=100000)
     parser.add_argument('--max_steps', type=int, help='Maximum number of steps per game during neural network learning,'
                                                       'process. Default 1000.', default=1000)
     parser.add_argument('--games', type=int, help='Number of games performed by neural network per one weights update.'
-                                                  'Default 10', default=10)
+                                                  'Default 10', default=20)
     parser.add_argument('--save_iter', type=int, help='Number of iterations after which neural network saves all'
                                                       'their parameters. Default 10.', default=10)
     parser.add_argument('--gamma', type=float, help='Discount factor for Policy Gradient (PG) neural network.'
-                                                    'Default 0.98.', default=0.98)
+                                                    'Default 0.98.', default=0.97)
     parser.add_argument('--model_path', type=str, help='Path to the saved model.', default='.\\model_trained')
 
     args = parser.parse_args()
@@ -319,7 +327,7 @@ if __name__ == '__main__':
     else:
         if args.learn:
             print('Neural network is learning...')
-            agent = BasicAgent(env=environment, n_iterations=args.iterations,n_max_steps=args.max_steps,
+            agent = BasicAgent(env=environment, n_iterations=args.iterations, n_max_steps=args.max_steps,
                                n_games_per_update=args.games, save_iterations=args.save_iter, gamma=args.gamma)
             agent.neural_net_model()
             agent.play_and_learn_neural_net()
