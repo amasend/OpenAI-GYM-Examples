@@ -61,3 +61,8 @@ Where:
  - **epochs_number** - how many times we want to play.
  - **steps_number** - the maximum number of actions we are allowed per game.
  - **model_path** - path to the stored neural neutwork model
+
+## Model performance during training  
+<p align="center">
+<img src="https://github.com/amasend/OpenAI-GYM-Examples/blob/master/Cart%20Pole%20example/pictures/cart_pole.png?raw=true"/> 
+</p>
