@@ -2,17 +2,21 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import time
+from multiprocessing.connection import Client
 
 
 class SimpleExample:
     """Class for simple q-learning example."""
     def __init__(self, alpha=0.8, gamma=0.99, ep_number=100):
+        address = ('localhost', 6000)
+        self.conn = Client(address, authkey=b'secret password')
         self.game_board = pd.DataFrame(data=np.array([[0, 0, 0, 1],
                                                       [0, 2, 0, 1],
                                                       [0, 1, 2, 0],
                                                       [2, 0, 0, 3]]),
                                        columns=['a', 'b', 'c', 'd'],
                                        index=[1, 2, 3, 4])
+        self.game_board.to_csv('game_board.csv')
         self.reward_table = pd.DataFrame(data=np.array(
             [[np.nan, -1, -1, np.nan, np.nan, np.nan, -100, 1, np.nan, -1, np.nan, -100, np.nan, 1, 1, np.nan],
              [-1, -1, -100, np.nan, -100, np.nan, -1, np.nan, -1, -100, np.nan, np.nan, 1, -1, 100, np.nan],
@@ -36,9 +40,6 @@ class SimpleExample:
         self.number_of_episodes = ep_number
         self.terminate = False
         self.reward = None
-        # self.fig = plt.figure()
-        # self.timer = self.fig.canvas.new_timer(interval=2000)
-        # self.timer.add_callback(self.close_event)
 
     def run_bellman_equation(self, next_state=None, terminate=False):
         """Compute Bellman equation for current state and update current q-value"""
@@ -73,19 +74,29 @@ class SimpleExample:
                 if np.isnan(self.reward):
                     continue
                 elif self.reward == 100 or self.reward == -100:  # If we choose the ending state/action
-                    # time.sleep(2)
+                    time.sleep(2)
                     # Compute Bellman equation without future reward (only +/-100 for the end game)
                     self.run_bellman_equation(terminate=True)
+                    self.conn.send({'q_table': self.q_table,
+                                    'game_board': self.game_board,
+                                    'cords': self.current_state,
+                                    'action': self.current_action})
+                    self.q_table.to_csv('q_table.csv')
                     self.terminate = True
                     break
                 else:
                     break
             print('State: {}    action: {}'.format(self.current_state, self.current_action))
             while not self.terminate:
-                # time.sleep(2)
+                time.sleep(2)
                 next_state = self.map_action_to_next_state()  # What is the next state?
                 # Compute whole Bellman equation with discounted q-value reward
                 self.run_bellman_equation(next_state=next_state)
+                self.conn.send({'q_table': self.q_table,
+                                'game_board': self.game_board,
+                                'cords': self.current_state,
+                                'action': self.current_action})
+                self.q_table.to_csv('q_table.csv')
                 self.current_state = next_state  # Switch to the next state
                 while True:
                     self.current_action = np.random.choice(self.all_actions, 1)[0]  # Choose next random action
@@ -94,14 +105,19 @@ class SimpleExample:
                     if np.isnan(self.reward):
                         continue
                     elif self.reward == 100 or self.reward == -100:
-                        # time.sleep(2)
+                        time.sleep(2)
                         self.run_bellman_equation(terminate=True)
+                        self.conn.send({'q_table': self.q_table,
+                                        'game_board': self.game_board,
+                                        'cords': self.current_state,
+                                        'action': self.current_action})
+                        self.q_table.to_csv('q_table.csv')
                         self.terminate = True
                         break
                     else:
                         break
                 print('State: {}    action: {}'.format(self.current_state, self.current_action))
-        self.q_table.to_csv('q_table.csv')
+        # self.q_table.to_csv('q_table.csv')
 
     def run_game(self):
         """Here you can run a agent to exploit the environment."""
@@ -120,6 +136,7 @@ class SimpleExample:
         plt.close()  # timer calls this function after 3 seconds and closes the window
 
 
-x = SimpleExample()
-x.explore_environment()
-x.run_game()
+if __name__ == '__main__':
+    x = SimpleExample()
+    x.explore_environment()
+    x.run_game()
